@@ -1,13 +1,10 @@
 use std::fmt;
-use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cell {
-    pub x: i32,
-    pub y: i32,
+    pub x: u8,
+    pub y: u8,
 }
-
-pub type Grid<T> = Vec<Vec<T>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerrainCell {
@@ -25,9 +22,9 @@ pub enum OccupancyCell {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitialState {
     pub my_id: i32,
-    pub width: i32,
-    pub height: i32,
-    pub terrain: Grid<TerrainCell>,
+    pub width: usize,
+    pub height: usize,
+    pub terrain: Vec<TerrainCell>,
     pub my_snakebot_ids: Vec<i32>,
     pub opp_snakebot_ids: Vec<i32>,
 }
@@ -54,91 +51,74 @@ pub struct WorldState {
     pub my_id: i32,
     pub width: usize,
     pub height: usize,
-    pub terrain: Grid<TerrainCell>,
-    pub occupancy: Grid<OccupancyCell>,
-    pub my_snakebot_ids: HashSet<i32>,
-    pub opp_snakebot_ids: HashSet<i32>,
+    pub terrain: Vec<TerrainCell>,
+    pub occupancy: Vec<OccupancyCell>,
+    pub my_snakebot_ids: Vec<i32>,
+    pub opp_snakebot_ids: Vec<i32>,
 }
 
 impl WorldState {
-    pub fn from_initial(initial: &InitialState) -> Option<Self> {
-        let width = usize::try_from(initial.width).ok()?;
-        let height = usize::try_from(initial.height).ok()?;
-        if width == 0 || height == 0 || initial.terrain.len() != height {
-            return None;
-        }
+    #[inline]
+    fn idx(&self, x: usize, y: usize) -> usize {
+        y * self.width + x
+    }
 
-        for row in &initial.terrain {
-            if row.len() != width {
-                return None;
-            }
-        }
+    pub fn from_initial(initial: InitialState) -> Self {
+        let size = initial.width * initial.height;
 
-        let occupancy = vec![vec![OccupancyCell::Empty; width]; height];
-        Some(Self {
+        Self {
             my_id: initial.my_id,
-            width,
-            height,
-            terrain: initial.terrain.clone(),
-            occupancy,
-            my_snakebot_ids: initial.my_snakebot_ids.iter().copied().collect(),
-            opp_snakebot_ids: initial.opp_snakebot_ids.iter().copied().collect(),
-        })
+            width: initial.width as usize,
+            height: initial.height as usize,
+            terrain: initial.terrain,
+            occupancy: vec![OccupancyCell::Empty; size as usize],
+            my_snakebot_ids: initial.my_snakebot_ids,
+            opp_snakebot_ids: initial.opp_snakebot_ids,
+        }
     }
 
     pub fn apply_turn(&mut self, turn: &TurnState) {
         self.clear_occupancy();
 
         for power in &turn.power_sources {
-            if let Some((x, y)) = self.to_index(power.pos) {
-                self.occupancy[y][x] = OccupancyCell::PowerSource;
-            }
+            let p = power.pos;
+            let idx = self.idx(p.x as usize, p.y as usize);
+            self.occupancy[idx] = OccupancyCell::PowerSource;
         }
 
         for snake in &turn.snakebots {
             for part in &snake.body {
-                if let Some((x, y)) = self.to_index(*part) {
-                    self.occupancy[y][x] = OccupancyCell::SnakeBody {
-                        snakebot_id: snake.snakebot_id,
-                    };
-                }
+                let idx = self.idx(part.x as usize, part.y as usize);
+                self.occupancy[idx] = OccupancyCell::SnakeBody {
+                    snakebot_id: snake.snakebot_id,
+                };
             }
         }
     }
 
     pub fn in_bounds(&self, p: Cell) -> bool {
-        p.x >= 0 && p.y >= 0 && (p.x as usize) < self.width && (p.y as usize) < self.height
+        (p.x as usize) < self.width && (p.y as usize) < self.height
     }
 
     fn clear_occupancy(&mut self) {
-        for row in &mut self.occupancy {
-            row.fill(OccupancyCell::Empty);
-        }
-    }
-
-    fn to_index(&self, p: Cell) -> Option<(usize, usize)> {
-        if !self.in_bounds(p) {
-            return None;
-        }
-        Some((usize::try_from(p.x).ok()?, usize::try_from(p.y).ok()?))
+        self.occupancy.fill(OccupancyCell::Empty);
     }
 
     pub fn render_ascii(&self) -> String {
         let mut out = String::new();
         for y in 0..self.height {
             for x in 0..self.width {
-                let ch = match self.occupancy[y][x] {
+                let idx = self.idx(x, y);
+                let ch = match self.occupancy[idx] {
                     OccupancyCell::PowerSource => '*',
                     OccupancyCell::SnakeBody { snakebot_id } => {
-                        if self.my_snakebot_ids.contains(&snakebot_id) {
+                        if self.my_snakebot_ids.iter().any(|&id| id == snakebot_id) {
                             'M'
-                        } else if self.opp_snakebot_ids.contains(&snakebot_id) {
-                            'E'
                         } else {
                             'S'
                         }
                     }
-                    OccupancyCell::Empty => match self.terrain[y][x] {
+                    OccupancyCell::Empty => match self.terrain[idx] {
                         TerrainCell::Wall => '#',
                         TerrainCell::Empty => '.',
                     },

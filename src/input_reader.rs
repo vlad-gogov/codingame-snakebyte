@@ -10,45 +10,6 @@ fn parse_i32(s: &str) -> Option<i32> {
 	parse::<i32>(s).ok()
 }
 
-fn parse_snake_body(raw: &str) -> Option<Vec<Cell>> {
-    if raw.is_empty() {
-        return Some(Vec::new());
-    }
-
-    let mut out = Vec::new();
-    for token in raw.split(':') {
-        let (x, y) = token.split_once(',')?;
-        out.push(Cell {
-            x: parse_i32(x)?,
-            y: parse_i32(y)?,
-        });
-    }
-    Some(out)
-}
-
-fn parse_terrain(width: i32, height: i32, rows: &[String]) -> Option<Vec<Vec<TerrainCell>>> {
-	let w = usize::try_from(width).ok()?;
-	let h = usize::try_from(height).ok()?;
-	if rows.len() != h {
-		return None;
-	}
-
-	let mut terrain = vec![vec![TerrainCell::Empty; w]; h];
-	for (y, row) in rows.iter().enumerate() {
-		if row.chars().count() != w {
-			return None;
-		}
-		for (x, ch) in row.chars().enumerate() {
-			terrain[y][x] = match ch {
-				'#' => TerrainCell::Wall,
-				_ => TerrainCell::Empty,
-			};
-		}
-	}
-
-	Some(terrain)
-}
-
 pub struct InputReader<R: BufRead> {
 	reader: R,
 }
@@ -61,41 +22,43 @@ impl<R: BufRead> InputReader<R> {
 	}
 
 	fn read_i32_line(&mut self) -> Option<i32> {
-		let s = self.read_trimmed_line_opt()?;
+		let s = self.read_line()?;
 		parse_i32(&s)
     }
 
-	fn read_trimmed_line_opt(&mut self) -> Option<String> {
+	fn read_line(&mut self) -> Option<String> {
         let mut line = String::new();
-		let bytes = self.reader.read_line(&mut line).ok()?;
-		if bytes == 0 {
-			return None;
-		}
-		let trimmed = line.trim_end_matches(['\n', '\r']).to_string();
-		eprintln!("{}", trimmed);
-		Some(trimmed)
+        if self.reader.read_line(&mut line).ok()? == 0 {
+            return None;
+        }
+        Some(line.trim().to_string())
 	}
 
 	pub fn read_initial_state(&mut self) -> Option<InitialState> {
 		let my_id = self.read_i32_line()?;
-		let width = self.read_i32_line()?;
-		let height = self.read_i32_line()?;
+		let width = self.read_i32_line()? as usize;
+		let height = self.read_i32_line()? as usize;
 
-		let mut rows = Vec::with_capacity(height.max(0) as usize);
-		for _ in 0..height as usize {
-			rows.push(self.read_trimmed_line_opt()?);
+		let mut terrain = Vec::with_capacity(width * height);
+		for _ in 0..height {
+			let row = self.read_line()?;
+
+            for ch in row.chars() {
+                terrain.push(match ch {
+                    '#' => TerrainCell::Wall,
+                    _ => TerrainCell::Empty,
+                });
+            }
 		}
 
-		let terrain = parse_terrain(width, height, &rows)?;
-
-		let snakebots_per_player = self.read_i32_line()?;
-		let mut my_snakebot_ids = Vec::with_capacity(snakebots_per_player.max(0) as usize);
-		for _ in 0..snakebots_per_player as usize {
+		let snakebots_per_player = self.read_i32_line()? as usize;
+		let mut my_snakebot_ids = Vec::with_capacity(snakebots_per_player);
+		for _ in 0..snakebots_per_player {
 			my_snakebot_ids.push(self.read_i32_line()?);
 		}
 
-		let mut opp_snakebot_ids = Vec::with_capacity(snakebots_per_player.max(0) as usize);
-		for _ in 0..snakebots_per_player as usize {
+		let mut opp_snakebot_ids = Vec::with_capacity(snakebots_per_player);
+		for _ in 0..snakebots_per_player {
 			opp_snakebot_ids.push(self.read_i32_line()?);
 		}
 
@@ -110,29 +73,36 @@ impl<R: BufRead> InputReader<R> {
 	}
 
 	pub fn read_turn_state(&mut self) -> Option<TurnState> {
-		let power_source_count = self.read_i32_line()?;
+		let power_source_count = self.read_i32_line()? as usize;
 
-		let mut power_sources = Vec::with_capacity(power_source_count.max(0) as usize);
-		for _ in 0..power_source_count as usize {
-			let row = self.read_trimmed_line_opt()?;
-			let parts: Vec<&str> = row.split_whitespace().collect();
-			if parts.len() < 2 {
-				return None;
-			}
-
-			let x = parse_i32(parts[0])?;
-			let y = parse_i32(parts[1])?;
-			power_sources.push(PowerSource { pos: Cell { x, y } });
+		let mut power_sources = Vec::with_capacity(power_source_count);
+		for _ in 0..power_source_count {
+            let line = self.read_line()?;
+            let mut it = line.split_whitespace();
+            let x = it.next()?.parse().ok()?;
+            let y = it.next()?.parse().ok()?;
+            power_sources.push(PowerSource {
+                pos: Cell { x, y },
+            });
 		}
 
-		let snakebot_count = self.read_i32_line()?;
-		let mut snakebots = Vec::with_capacity(snakebot_count.max(0) as usize);
-		for _ in 0..snakebot_count as usize {
-			let row = self.read_trimmed_line_opt()?;
+		let snakebot_count = self.read_i32_line()? as usize;
+		let mut snakebots = Vec::with_capacity(snakebot_count);
+		for _ in 0..snakebot_count {
+			let row = self.read_line()?;
 			let mut parts = row.splitn(2, ' ');
 			let snakebot_id = parse_i32(parts.next()?)?;
-			let body_raw = parts.next().unwrap_or("").trim();
-			let body = parse_snake_body(body_raw)?;
+			let body_raw = parts.next().unwrap_or("");
+            let mut body = Vec::new();
+            if !body_raw.is_empty() {
+                for token in body_raw.split(':') {
+                    let (x, y) = token.split_once(',')?;
+                    body.push(Cell {
+                        x: x.parse::<i32>().ok()? as u8,
+                        y: y.parse::<i32>().ok()? as u8,
+                    });
+                }
+            }
 			snakebots.push(SnakeBot { snakebot_id, body });
 		}
 
@@ -159,8 +129,8 @@ mod tests {
 		assert_eq!(state.my_id, 1);
 		assert_eq!(state.width, 4);
 		assert_eq!(state.height, 3);
-		assert_eq!(state.terrain.len(), 3);
-		assert_eq!(state.terrain[1][1], TerrainCell::Wall);
+		assert_eq!(state.terrain.len(), 12);
+		assert_eq!(state.terrain[1 * 4 + 1], TerrainCell::Wall);
 		assert_eq!(state.my_snakebot_ids, vec![10, 11]);
 		assert_eq!(state.opp_snakebot_ids, vec![20, 21]);
 	}
@@ -207,15 +177,6 @@ mod tests {
 		assert_eq!(turn.snakebots.len(), 1);
 		assert_eq!(turn.snakebots[0].body.len(), 4);
 		assert_eq!(turn.snakebots[0].body[3], Cell { x: 0, y: 3 });
-	}
-
-	#[test]
-	fn rejects_invalid_terrain_row_width() {
-		let data = "1\n4\n2\n...\n....\n1\n10\n20\n";
-		let cursor = Cursor::new(data.as_bytes());
-		let mut reader = InputReader::new(cursor);
-
-		assert!(reader.read_initial_state().is_none());
 	}
 
 	#[test]

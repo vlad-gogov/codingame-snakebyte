@@ -12,9 +12,7 @@ fn main() {
         return;
     };
 
-    let Some(mut world) = WorldState::from_initial(&initial) else {
-        return;
-    };
+    let mut world = WorldState::from_initial(initial);
 
     while let Some(turn) = input.read_turn_state() {
         world.apply_turn(&turn);
