@@ -1,4 +1,4 @@
-use codingame_snakebyte::game::{OccupancyCell, TerrainCell, TurnState, WorldState};
+use codingame_snakebyte::game::{Terrain, TurnState, WorldState, OCC_EMPTY, OCC_POWER};
 use codingame_snakebyte::input_reader::InputReader;
 use macroquad::prelude::*;
 use std::io;
@@ -21,10 +21,10 @@ fn load_replay() -> Option<(WorldState, Vec<TurnState>)> {
     let mut input = InputReader::new(stdin.lock());
 
     let initial = input.read_initial_state()?;
-    let base_world = WorldState::from_initial(&initial)?;
+    let base_world = WorldState::from_initial(initial);
 
     let mut turns = Vec::new();
-    while let Some(turn) = input.read_turn_state() {
+    while let Some(turn) = input.read_turn_state(base_world.width) {
         turns.push(turn);
     }
 
@@ -33,13 +33,11 @@ fn load_replay() -> Option<(WorldState, Vec<TurnState>)> {
 
 fn rebuild_world(base: &WorldState, turns: &[TurnState], idx: usize) -> WorldState {
     let mut world = base.clone();
-    if turns.is_empty() {
-        return world;
-    }
 
     for turn in turns.iter().take(idx.saturating_add(1)) {
         world.apply_turn(turn);
     }
+
     world
 }
 
@@ -66,28 +64,45 @@ fn draw_world(world: &WorldState, turn_idx: usize, total_turns: usize, paused: b
 
     for y in 0..world.height {
         for x in 0..world.width {
+            let idx = y * world.width + x;
             let px = offset_x + x as f32 * cell_size;
             let py = offset_y + y as f32 * cell_size;
 
-            let color = match world.occupancy[y][x] {
-                OccupancyCell::PowerSource => Color::from_rgba(242, 189, 50, 255),
-                OccupancyCell::SnakeBody { snakebot_id } => {
-                    if world.my_snakebot_ids.contains(&snakebot_id) {
-                        Color::from_rgba(255, 105, 180, 255)
-                    } else if world.opp_snakebot_ids.contains(&snakebot_id) {
-                        Color::from_rgba(70, 214, 120, 255)
-                    } else {
-                        Color::from_rgba(125, 145, 165, 255)
+            let occ = world.occupancy[idx];
+            let color = if occ == OCC_POWER {
+                Color::from_rgba(242, 189, 50, 255)
+            } else if occ >= 0 {
+                let snakebot_id = occ as i32;
+                let mut is_my_snake = false;
+                for i in 0..world.my_snakebot_count {
+                    if world.my_snakebot_ids[i as usize] == snakebot_id as u8 {
+                        is_my_snake = true;
+                        break;
                     }
                 }
-                OccupancyCell::Empty => match world.terrain[y][x] {
-                    TerrainCell::Wall => Color::from_rgba(77, 84, 102, 255),
-                    TerrainCell::Empty => Color::from_rgba(18, 24, 35, 255),
-                },
+                if is_my_snake {
+                    Color::from_rgba(255, 105, 180, 255)
+                } else {
+                    Color::from_rgba(70, 214, 120, 255)
+                }
+            } else if occ == OCC_EMPTY {
+                match world.terrain[idx] {
+                    Terrain::Wall => Color::from_rgba(77, 84, 102, 255),
+                    Terrain::Empty => Color::from_rgba(18, 24, 35, 255),
+                }
+            } else {
+                Color::from_rgba(18, 24, 35, 255)
             };
 
             draw_rectangle(px, py, cell_size, cell_size, color);
-            draw_rectangle_lines(px, py, cell_size, cell_size, 1.0, Color::from_rgba(32, 40, 56, 255));
+            draw_rectangle_lines(
+                px,
+                py,
+                cell_size,
+                cell_size,
+                1.0,
+                Color::from_rgba(32, 40, 56, 255),
+            );
         }
     }
 }

@@ -1,6 +1,6 @@
 extern crate codingame_snakebyte;
 
-use codingame_snakebyte::game::WorldState;
+use codingame_snakebyte::game::{FastWorld, WorldState};
 use codingame_snakebyte::input_reader::InputReader;
 use std::io;
 
@@ -12,13 +12,12 @@ fn main() {
         return;
     };
 
-    let mut world = WorldState::from_initial(initial);
+    let world = WorldState::from_initial(initial);
 
-    while let Some(turn) = input.read_turn_state() {
-        world.apply_turn(&turn);
+    while let Some(turn) = input.read_turn_state(world.width) {
+        let fast_world: FastWorld = FastWorld::from_world(&world, &turn);
+        println!("{}", fast_world.moves_to_text());
+        // world.apply_turn(&turn);
         // eprintln!("{}", world);
-
-        // TODO: compute best action from turn state.
-        println!("WAIT");
     }
 }
